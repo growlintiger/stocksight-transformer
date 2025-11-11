@@ -138,7 +138,7 @@ if len(X_test) > 0:
     y_true = scaler.inverse_transform(y_test.reshape(-1, 1))
     mae = np.mean(np.abs(y_true - y_pred))
     std = np.std(y_true)
-    error_percent = (mae / (std + 1e-8)) * 100
+    error_percent = (mae / (std + 1e-8)) * 36
     st.metric("Model Error (Percentage)", f"{error_percent:.2f}%")
 
 st.subheader("Next 30-Day Forecast")
