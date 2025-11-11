@@ -5,8 +5,8 @@ from sklearn.preprocessing import StandardScaler
 import tensorflow as tf
 from tensorflow.keras import layers, models, optimizers, losses, callbacks
 import plotly.graph_objects as go
-import plotly.io as pio
 import os
+import plotly.io as pio
 
 pio.templates.default = "plotly_white"
 
@@ -50,33 +50,31 @@ def build_time_transformer(input_len, d_model=128, num_heads=8, ff_dim=256, num_
     model.compile(optimizer=optimizers.Adam(1e-4), loss=losses.MeanSquaredError())
     return model
 
-st.set_page_config(
-    page_title="StockSight - Return-based Transformer",
-    page_icon="logo.jpg",
-    layout="wide"
-)
-st.title("StockSight: A General Time transformer Based Stock Price Predictor")
-st.caption("Forecasts 30-day prices using return-based Transformer architecture.")
+st.set_page_config(page_title="StockSight - GTT Model", page_icon="logo.jpg", layout="wide")
+st.title("StockSight — Return-based Gated Time Transformer (1-Month Forecast)")
+st.caption("Developed as part of the GTT Project by Group 2, KIIT University")
 
-NIFTY50_TICKERS = [
-    "RELIANCE.NS", "TCS.NS", "INFY.NS", "HDFCBANK.NS", "ICICIBANK.NS", "BHARTIARTL.NS", "ITC.NS",
-    "SBIN.NS", "HINDUNILVR.NS", "KOTAKBANK.NS", "HCLTECH.NS", "LT.NS", "ASIANPAINT.NS", "MARUTI.NS",
-    "AXISBANK.NS", "SUNPHARMA.NS", "BAJFINANCE.NS", "ULTRACEMCO.NS", "WIPRO.NS", "POWERGRID.NS",
-    "TITAN.NS", "ONGC.NS", "NTPC.NS", "ADANIENT.NS", "ADANIPORTS.NS", "NESTLEIND.NS", "TATASTEEL.NS",
-    "HDFCLIFE.NS", "TECHM.NS", "BAJAJFINSV.NS", "COALINDIA.NS", "JSWSTEEL.NS", "GRASIM.NS",
-    "BRITANNIA.NS", "SBILIFE.NS", "HEROMOTOCO.NS", "EICHERMOT.NS", "DRREDDY.NS", "TATAMOTORS.NS",
-    "DIVISLAB.NS", "CIPLA.NS", "HINDALCO.NS", "BPCL.NS", "UPL.NS", "INDUSINDBK.NS", "SHREECEM.NS",
-    "BAJAJ-AUTO.NS", "HDFCAMC.NS", "APOLLOHOSP.NS", "ICICIPRULI.NS", "M&M.NS"
+st.sidebar.header("Stock Selection")
+tickers = [
+    "RELIANCE.NS", "TCS.NS", "INFY.NS", "HDFCBANK.NS", "ICICIBANK.NS", "BHARTIARTL.NS", "ITC.NS", "SBIN.NS",
+    "HINDUNILVR.NS", "KOTAKBANK.NS", "HCLTECH.NS", "LT.NS", "ASIANPAINT.NS", "MARUTI.NS", "AXISBANK.NS",
+    "SUNPHARMA.NS", "BAJFINANCE.NS", "ULTRACEMCO.NS", "WIPRO.NS", "POWERGRID.NS", "TITAN.NS", "ONGC.NS",
+    "NTPC.NS", "ADANIENT.NS", "ADANIPORTS.NS", "NESTLEIND.NS", "TATASTEEL.NS", "HDFCLIFE.NS", "TECHM.NS",
+    "BAJAJFINSV.NS", "COALINDIA.NS", "JSWSTEEL.NS", "GRASIM.NS", "BRITANNIA.NS", "SBILIFE.NS", "HEROMOTOCO.NS",
+    "EICHERMOT.NS", "DRREDDY.NS", "TATAMOTORS.NS", "DIVISLAB.NS", "CIPLA.NS", "HINDALCO.NS", "BPCL.NS",
+    "UPL.NS", "INDUSINDBK.NS", "SHREECEM.NS", "BAJAJ-AUTO.NS", "HDFCAMC.NS", "APOLLOHOSP.NS", "ICICIPRULI.NS",
+    "M&M.NS"
 ]
-
-ticker = st.sidebar.selectbox("Select Stock (Nifty 50)", NIFTY50_TICKERS, index=0)
+ticker = st.sidebar.selectbox("Choose Stock", tickers)
 train_button = st.sidebar.button("Train / Retrain Model")
 
-window_size, epochs, batch_size = 60, 50, 64
+window_size = 60
+epochs = 50
+batch_size = 64
 
 csv_path = f"data/{ticker}.csv"
 if not os.path.exists(csv_path):
-    st.error(f"Missing data file: {csv_path}. Please ensure the CSV is available.")
+    st.error(f"Missing data file: {csv_path}")
     st.stop()
 
 data = pd.read_csv(csv_path, parse_dates=["Date"], index_col="Date")
@@ -86,54 +84,49 @@ st.write(f"Data range: {df.index.min().date()} → {df.index.max().date()} ({len
 
 fig_raw = go.Figure()
 fig_raw.add_trace(go.Scatter(x=df.index, y=df["Close"], mode='lines', name='Close Price'))
-fig_raw.update_layout(title=f"{ticker} - 3-Year Historical Close Price", xaxis_title="Date", yaxis_title="Price")
-st.plotly_chart(fig_raw, use_container_width=True)
+fig_raw.update_layout(title=f"{ticker} — 3-Year Historical Close Price", xaxis_title="Date", yaxis_title="Price")
+st.plotly_chart(fig_raw, width='stretch')
 
 df["Return"] = df["Close"].pct_change()
 df = df.dropna()
 
-if len(df) < window_size + 30:
-    window_size = max(10, len(df) // 4)
-    st.warning(f"Adjusted window size to {window_size} due to limited data.")
-
 scaler = StandardScaler()
 scaled = scaler.fit_transform(df[["Return"]])
 
+if len(df) < window_size + 30:
+    window_size = max(10, len(df) // 4)
+
 X, y = create_sequences(scaled, window_size)
 if len(X) == 0 or len(y) == 0:
-    st.error("Not enough data to create training sequences.")
+    st.error("Not enough data to train model.")
     st.stop()
 
 split = int(len(X) * 0.8)
 X_train, X_test = X[:split], X[split:]
 y_train, y_test = y[:split], y[split:]
-
-if len(X_train) < 20 or len(X_test) < 5:
-    st.error(f"Insufficient data to train model for {ticker}.")
-    st.stop()
-
 X_train, X_test = X_train.reshape((-1, window_size, 1)), X_test.reshape((-1, window_size, 1))
 
-tf.keras.backend.clear_session()
-model = build_time_transformer(window_size)
 model_path = f"models/{ticker}_returns_transformer.h5"
 os.makedirs("models", exist_ok=True)
 
 if train_button:
-    with st.spinner(f"Training Transformer model for {ticker}..."):
+    with st.spinner(f"Training GTT model for {ticker}..."):
         try:
+            tf.keras.backend.clear_session()
+            model = build_time_transformer(window_size)
             es = callbacks.EarlyStopping(monitor="val_loss", patience=5, restore_best_weights=True)
             model.fit(X_train, y_train, validation_data=(X_test, y_test),
                       epochs=epochs, batch_size=batch_size, verbose=0, callbacks=[es])
             model.save(model_path)
-            st.success(f"Model trained and saved for {ticker}.")
+            st.success(f"Model trained and saved for {ticker}")
         except Exception as e:
             st.error(f"Training failed: {e}")
 else:
     if os.path.exists(model_path):
         try:
+            model = build_time_transformer(window_size)
             model.load_weights(model_path)
-            st.info(f"Loaded saved model for {ticker}.")
+            st.info(f"Loaded saved model for {ticker}")
         except Exception as e:
             st.warning(f"Could not load model. Please retrain. Error: {e}")
     else:
@@ -143,15 +136,14 @@ if len(X_test) > 0:
     preds_scaled = model.predict(X_test, verbose=0)
     y_pred = scaler.inverse_transform(preds_scaled)
     y_true = scaler.inverse_transform(y_test.reshape(-1, 1))
-    error_percent = np.mean(np.abs(y_true - y_pred)) * 2800
-    st.subheader("Model Performance")
-    st.metric("Overall Error", f"{error_percent:.2f}%")
+    error_percent = np.mean(np.abs((y_true - y_pred) / (y_true + 1e-8))) * 100
+    st.metric("Model Error (Percentage)", f"{error_percent:.2f}%")
 
 st.subheader("Next 30-Day Forecast")
-
 try:
     last_window = scaled[-window_size:].reshape(1, window_size, 1)
     future_returns = []
+
     for _ in range(30):
         next_pred = model.predict(last_window, verbose=0)
         last_window = np.concatenate((last_window[:, 1:, :], next_pred.reshape(1, 1, 1)), axis=1)
@@ -162,28 +154,32 @@ try:
     future_prices = [last_close]
     for r in future_returns:
         future_prices.append(future_prices[-1] * (1 + r))
-
     future_prices = np.array(future_prices[1:])
     future_dates = pd.date_range(df.index[-1] + pd.Timedelta(days=1), periods=30)
     forecast_df = pd.DataFrame({"Date": future_dates, "Predicted Price": future_prices})
 
     fig_future = go.Figure()
     fig_future.add_trace(go.Scatter(x=df.index[-180:], y=df["Close"].tail(180), mode='lines', name='Recent Actual (6M)'))
-    fig_future.add_trace(go.Scatter(x=forecast_df["Date"], y=forecast_df["Predicted Price"], mode='lines+markers', name='Forecast (Next 30D)'))
-    fig_future.update_layout(title=f"{ticker} - 1-Month Price Forecast (Time vs Price)", xaxis_title="Date", yaxis_title="Price")
-    st.plotly_chart(fig_future, use_container_width=True)
+    fig_future.add_trace(go.Scatter(x=forecast_df["Date"], y=forecast_df["Predicted Price"],
+                                    mode='lines+markers', name='Forecast (Next 30D)'))
+    fig_future.update_layout(title=f"{ticker} — 1-Month Forecast (Time vs Price)",
+                             xaxis_title="Date", yaxis_title="Price")
+    st.plotly_chart(fig_future, width='stretch')
 
     st.dataframe(forecast_df, use_container_width=True)
     csv = forecast_df.to_csv(index=False).encode("utf-8")
-    st.download_button("Download Forecast as CSV", csv, f"{ticker}_30day_forecast.csv", "text/csv")
-
+    st.download_button("Download Forecast as CSV", csv, f"{ticker}_forecast.csv", "text/csv")
 except Exception as e:
     st.error(f"Forecasting failed: {e}")
 
 st.markdown("<hr>", unsafe_allow_html=True)
 st.markdown("""
 <div style='text-align: right; color: gray; font-size: 0.85rem;'>
-<b>StockSight Project - Transformer Forecast Model</b><br>
-Developed by Group 2, KIIT University
+<b>GTT Prediction Project by Group 2</b><br>
+Devyanshu Bharti (2229029)<br>
+Saumyajit Chatterjee (2229086)<br>
+Yash Srivastava (2229082)<br>
+Abhinav Baranwal (2229085)<br>
+Chirayil Alex Binu (2229110)
 </div>
 """, unsafe_allow_html=True)
